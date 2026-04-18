@@ -15,10 +15,15 @@ __pycache__/
 *.so
 .Python
 env/
+.env/
 venv/
+.venv/
 ENV/
+.ENV/
 env.bak/
+.env.bak/
 venv.bak/
+.venv.bak/
 
 # IDE
 .vscode/

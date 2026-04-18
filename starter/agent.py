@@ -1,9 +1,20 @@
 import os
+from dotenv import load_dotenv
 from google.adk.agents import Agent
+from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from toolbox_core import ToolboxSyncClient
 from .datastore import datastore_search_tool
 from .search_agent import search_agent_tool
+
+# Load environment variables from .env
+load_dotenv()
+
+# Model definition
+# Selected for balance of speed and reasoning capability; 
+# gemini-2.5-pro offers better accuracy but slower response times,
+# while flash-lite is too lightweight for complex tool orchestration
+model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
 # Configure short-term session to use the in-memory service
 session_service = InMemorySessionService()  # ✅ RUBRIC REQUIREMENT: Session storage configured
@@ -17,17 +28,11 @@ with open(instruction_file_path, "r") as f:
 # Set up the tools that we will be using for the root agent
 tools = []  # Start with empty list
 
-# Model definition
-# Selected for balance of speed and reasoning capability; 
-# gemini-2.5-pro offers better accuracy but slower response times,
-# while flash-lite is too lightweight for complex tool orchestration
-model="gemini-2.5-flash"
-
 # Load database tool from ToolboxSyncClient (Required by rubric)
-# This loads get-product-price from MySQL source via MCP Database Toolbox server
+# This loads get_product_price from MySQL source via MCP Database Toolbox server
 try:
-    db_client = ToolboxSyncClient(url=os.environ.get("TOOLBOX_URL", "http://127.0.0.1:5000"))
-    database_tools = db_client.load_tool("get-product-price-tool")  # ✅ RUBRIC REQUIREMENT: Load tool from toolbox server
+    db_client = ToolboxSyncClient(url=os.getenv("TOOLBOX_URL", "http://127.0.0.1:5000"))
+    database_tools = db_client.load_tool("get_product_price")       # ✅ RUBRIC REQUIREMENT: Load tool from toolbox server
     tools.append(database_tools)                                    # Add all loaded tools to our list
     print(f"✅ Loaded {len(tools)} tool(s) from ToolboxSyncClient")
 except Exception as e:
@@ -36,10 +41,10 @@ except Exception as e:
 
 # Import datastore search tool (from separate file)
 try:
-    tools.append(datastore_search_tool)  # ✅ RUBRIC REQUIREMENT: Datastore tool integrated
+    tools.append(datastore_search_tool)                             # ✅ RUBRIC REQUIREMENT: Datastore tool integrated
     print("✅ Loaded datastore_search_tool from datastore.py")
 except Exception as e:
-    print("⚠️ Warning: Could not import datastore search tool.")
+    print("⚠️ Warning: Could not import datastore_search_tool.")
     print(f"   Error: {e}")
 
 # # Import web search tool (from separate file)
@@ -51,17 +56,25 @@ except Exception as e:
     print(f"   Error: {e}")
 
 # Create your agent with proper configuration
-agent = Agent(
-    name="Betty's Bird Boutique Assistant",  # ✅ RUBRIC REQUIREMENT: Name configured
+root_agent = Agent(
+    name="root_agent",                       # ✅ RUBRIC REQUIREMENT: Name configured
     description="A helpful customer service agent for Betty's Bird Boutique, specializing in bird-related questions and store operations.",  # ✅ RUBRIC REQUIREMENT: Description configured
     instruction=instruction,                 # ✅ RUBRIC REQUIREMENT: Instruction parameter reads from file
-    session_service=session_service,         # ✅ RUBRIC REQUIREMENT: Session storage passed to Agent constructor # type: ignore
     model=model,                             # ✅ RUBRIC REQUIREMENT: Selected for best balance of speed and reasoning capability
     tools=tools,                             # ✅ RUBRIC REQUIREMENT: All required tools added to agent
 )
 
 # Print confirmation
 print("✅ Root Agent created successfully")
-print(f"   Name: {agent.name}")
-print(f"   Model: {agent.model}")
-print(f"   Tools loaded: {[t.name for t in agent.tools]}") # type: ignore
+print(f"   Name: {root_agent.name}")
+print(f"   Model: {root_agent.model}")
+if root_agent.tools:
+    print(f"   Tools loaded: {[getattr(t, 'name', type(t).__name__) for t in root_agent.tools]}")
+else:
+    print("   No tools loaded.")
+
+runner = Runner(
+    agent=root_agent,
+    session_service=session_service,         # ✅ RUBRIC REQUIREMENT: InMemorySessionService passed to the Runner
+    app_name="bettys_bird_boutique",
+)

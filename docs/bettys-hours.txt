@@ -1,0 +1,9 @@
+Store Hours
+
+Sunday: noon - 5pm 
+Monday: Closed 
+Tuesday: 9am - 5pm 
+Wednesday: 8am - 8pm 
+Thursday: 9am - 5pm 
+Friday: 9am - 3pm 
+Saturday: 9am - 8pm

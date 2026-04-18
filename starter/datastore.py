@@ -1,7 +1,33 @@
 import os
+from dotenv import load_dotenv
 from google.api_core.client_options import ClientOptions
 from google.cloud import discoveryengine_v1 as discoveryengine
+from google.cloud import storage
 
+# Load environment variables from .env
+load_dotenv()
+
+def fetch_gcs_content(gcs_uri: str) -> str:
+    """
+    Fetch the text content of a file from Google Cloud Storage.
+
+    Args:
+        gcs_uri (str): A GCS URI in the form gs://bucket-name/object-name
+
+    Returns:
+        str: The text content of the file, or an empty string on failure
+    """
+    try:
+        # Strip the gs:// prefix and split into bucket and blob path
+        without_prefix = gcs_uri.replace("gs://", "")
+        bucket_name, _, blob_name = without_prefix.partition("/")
+
+        gcs_client = storage.Client()
+        bucket = gcs_client.bucket(bucket_name)
+        blob = bucket.blob(blob_name)
+        return blob.download_as_text()
+    except Exception as e:
+        return f"[Could not fetch content from {gcs_uri}: {e}]"
 
 # Definition of a tool that accesses a Vertex AI Search Datastore
 #
@@ -20,74 +46,76 @@ def search(
     engine_id: str,
     search_query: str,
 ) -> list[str]:
-    # For more information, refer to:
-    # https://cloud.google.com/generative-ai-app-builder/docs/locations#specify_a_multi-region_for_your_data_store
     client_options = (
         ClientOptions(api_endpoint=f"{location}-discoveryengine.googleapis.com")
         if location != "global"
         else None
     )
 
-    # Create a client
     client = discoveryengine.SearchServiceClient(client_options=client_options)
 
-    # The full resource name of the search app serving config
-    serving_config = f"projects/{project_id}/locations/{location}/collections/default_collection/engines/{engine_id}/servingConfigs/default_config"
+    serving_config = (
+        f"projects/{project_id}/locations/{location}/collections/default_collection"
+        f"/engines/{engine_id}/servingConfigs/default_config"
+    )
 
-    # discoveryengine.SearchRequest - Using dict format for compatibility
-    request = {
-        "request": {
-            "servingConfig": serving_config,
-            "query": search_query,
-            "contentSearchSpec": {
-                "type": "DOCUMENTS",
-                "spec": [
-                    {"field": "title", "weight": 1.0},
-                    {"field": "description", "weight": 2.0},
-                ],
-            },
-            "pageLimit": 5,
-            "topK": 3,
-        }
-    }
+    request = discoveryengine.SearchRequest(
+        serving_config=serving_config,
+        query=search_query,
+        page_size=5,
+        query_expansion_spec=discoveryengine.SearchRequest.QueryExpansionSpec(
+            condition=discoveryengine.SearchRequest.QueryExpansionSpec.Condition.AUTO,
+        ),
+        spell_correction_spec=discoveryengine.SearchRequest.SpellCorrectionSpec(
+            mode=discoveryengine.SearchRequest.SpellCorrectionSpec.Mode.AUTO,
+        ),
+    )
 
     page_result = client.search(request)
 
-    # Completed: Format and return the results - Convert to list of strings
     results = []
-    for result in page_result.results:
-        if hasattr(result, "content"):
-            content = (
-                result.content.get("text", "")
-                if isinstance(result.content, dict)
-                else str(result.content)
-            )
-            results.append(content[:500])  # Limit length for readability
+    seen_content = set()  # deduplicate .txt and .pdf versions of the same document
 
-    return results
+    for result in page_result:
+        struct_data = result.document.derived_struct_data
+
+        title_str = struct_data.get("title", "Unknown title")
+        link_str = struct_data.get("link", "Unknown source")
+        can_fetch = struct_data.get("can_fetch_raw_content", "false")
+
+        # Only fetch GCS content when the datastore flagged it as fetchable
+        # and the link points to a plain-text file to avoid binary content
+        if can_fetch == "true" and link_str.endswith(".txt"):
+            content = fetch_gcs_content(link_str)
+
+            # Deduplicate: same document may appear as both .txt and .pdf
+            if content and content not in seen_content:
+                seen_content.add(content)
+                results.append(
+                    f"Title: {title_str}\nSource: {link_str}\nContent:\n{content}"
+                )
+        else:
+            # Fall back to metadata only for non-text files
+            results.append(f"Title: {title_str}\nSource: {link_str}")
+
+    return results if results else ["No results found."]
 
 
-# Completed: Implement a tool that calls search() and returns processed results
-def datastore_search_tool(search_query: str):
+def datastore_search_tool(search_query: str) -> list[str]:
     """
     Search the Vertex AI Search Datastore for information about Betty's Bird Boutique.
 
     Args:
-        query (str): The search query to look up in documents
+        search_query (str): The search query to look up in documents
 
     Returns:
         list[str]: List of document snippets relevant to the query
     """
-    # Get configuration from environment variables with defaults
     project_id = os.environ.get("DATASTORE_PROJECT_ID", "")
     engine_id = os.environ.get("DATASTORE_ENGINE_ID", "")
     location = os.environ.get("DATASTORE_LOCATION", "global")
 
-    # Call the search function
     try:
-        results = search(project_id, location, engine_id, search_query)
-        if not results:
-            return "No results found."
-        return results
+        return search(project_id, location, engine_id, search_query)
     except Exception as e:
-        return f"A problem occurred: {e}"
+        return [f"A problem occurred: {e}"]

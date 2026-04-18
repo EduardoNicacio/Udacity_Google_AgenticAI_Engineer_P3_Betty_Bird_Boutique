@@ -7,13 +7,11 @@ sources:
     user: ${MYSQL_USER}
     password: ${MYSQL_PASSWORD}
     database: betty
-
 tools:
   # Tool to query product pricing from MySQL database
   get_product_price:
     kind: mysql-sql
     source: products
-    name: "get-product-price-tool"
     description: "Query the product pricing database for a specific bird product's price."
     parameters:
       - name: product_name
