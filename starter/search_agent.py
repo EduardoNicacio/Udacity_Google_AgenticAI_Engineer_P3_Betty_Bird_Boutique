@@ -7,10 +7,10 @@ from google.adk.tools import google_search, AgentTool
 load_dotenv()
 
 # Model definition
-# Selected for balance of speed and reasoning capability; 
+# Selected for balance of speed and reasoning capability;
 # gemini-2.5-pro offers better accuracy but slower response times,
 # while flash-lite is too lightweight for complex tool orchestration
-model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
 # Definition of an agent tool that accesses Grounding with Google Search
 # Read the instructions from a file in the same directory as this file.
@@ -19,17 +19,15 @@ instruction_file_path = os.path.join(script_dir, "search-prompt.txt")
 with open(instruction_file_path, "r") as f:
     instruction = f.read()
 
-tools = [
-    google_search
-]
+tools = [google_search]  # ✅ Grounding enabled by default in ADK
 
 # Completed: Implement - Create search agent with Google Search grounding
 search_agent = Agent(
-    name="web_search_agent",
+    name="search_with_grounding",
     description="Specializes in answering general bird-related questions using web search grounding.",
     instruction=instruction,
     model=model,
-    tools=tools, # type: ignore
+    tools=tools,  # type: ignore
 )
 
-search_agent_tool = AgentTool(agent=search_agent)
+search_with_grounding = AgentTool(agent=search_agent)

@@ -7,6 +7,7 @@ from google.cloud import storage
 # Load environment variables from .env
 load_dotenv()
 
+
 def fetch_gcs_content(gcs_uri: str) -> str:
     """
     Fetch the text content of a file from Google Cloud Storage.
@@ -29,6 +30,7 @@ def fetch_gcs_content(gcs_uri: str) -> str:
     except Exception as e:
         return f"[Could not fetch content from {gcs_uri}: {e}]"
 
+
 # Definition of a tool that accesses a Vertex AI Search Datastore
 #
 # This is based on code provided by Google at
@@ -46,6 +48,47 @@ def search(
     engine_id: str,
     search_query: str,
 ) -> list[str]:
+    """
+    Search Vertex AI Search Datastore for relevant documents and content.
+
+    This function performs a search query against the Vertex AI Search Datastore,
+    retrieving document metadata and optionally fetching raw content from Google Cloud Storage (GCS)
+    when available. It includes deduplication logic to avoid duplicate results from different file formats
+    of the same document.
+
+    Args:
+        project_id (str): The Google Cloud project ID containing the search engine.
+        location (str): The geographic region where the search engine is located. 
+                        Common values include "global" or specific regions like "us-central1".
+        engine_id (str): The unique identifier for the search engine within the project.
+        search_query (str): The text query to search for in the datastore.
+
+    Returns:
+        list[str]: A list of strings containing search results in the format:
+                   - For documents with fetchable content: "Title: {title}\nSource: {link}\nContent:\n{content}"
+                   - For documents without fetchable content or non-text files: "Title: {title}\nSource: {link}"
+                   Returns ["No results found."] if no matching documents are found.
+
+    Raises:
+        Exception: If the search client cannot be created, request fails, or any other error occurs during execution.
+
+    Example:
+        >>> results = search(
+        ...     project_id="my-project",
+        ...     location="us-central1",
+        ...     engine_id="bird-boutique-search-engine",
+        ...     search_query="parrot care guide"
+        ... )
+        >>> for result in results:
+        ...     print(result)
+
+    Notes:
+        - Automatically deduplicates documents that appear as both .txt and .pdf versions.
+        - Only fetches GCS content when the datastore flags it as fetchable AND the link points to a plain-text file (.txt).
+        - Falls back to metadata-only results for non-text files or non-fetchable documents.
+        - Includes spell correction and query expansion enabled by default.
+    """
+    
     client_options = (
         ClientOptions(api_endpoint=f"{location}-discoveryengine.googleapis.com")
         if location != "global"
@@ -79,9 +122,9 @@ def search(
     for result in page_result:
         struct_data = result.document.derived_struct_data
 
-        title_str = struct_data.get("title", "Unknown title")
-        link_str = struct_data.get("link", "Unknown source")
-        can_fetch = struct_data.get("can_fetch_raw_content", "false")
+        title_str = struct_data.get("title", "Unknown title")  # type: ignore
+        link_str = struct_data.get("link", "Unknown source")  # type: ignore
+        can_fetch = struct_data.get("can_fetch_raw_content", "false")  # type: ignore
 
         # Only fetch GCS content when the datastore flagged it as fetchable
         # and the link points to a plain-text file to avoid binary content
